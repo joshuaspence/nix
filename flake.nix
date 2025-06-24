@@ -132,7 +132,8 @@
 
         configureFlags =
           lib.optionals stdenv.isLinux [
-            "--with-boost=${boost}/lib"
+            "--with-boost=${boost182}/lib"
+            "--with-boost-libdir=${boost182}/lib"
             "--with-sandbox-shell=${sh}/bin/busybox"
           ]
           ++ lib.optionals (stdenv.isLinux && !(isStatic && stdenv.system == "aarch64-linux")) [
