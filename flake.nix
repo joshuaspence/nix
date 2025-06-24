@@ -89,8 +89,10 @@
             inherit system crossSystem;
             overlays = [
               (overlayFor (p: p.${stdenv}))
+              (import ./overlay.nix)
             ];
           };
+
           stdenvs = forAllStdenvs (make-pkgs null);
           native = stdenvs.stdenvPackages;
         in {
@@ -135,7 +137,8 @@
             "--with-boost=${boost182}/lib"
             "--with-boost-libdir=${boost182}/lib"
             "--with-sandbox-shell=${sh}/bin/busybox"
-            "--enable-metall"
+            "--enable-gc=no"
+            "--with-metall=${metall}/lib"
           ]
           ++ lib.optionals (stdenv.isLinux && !(isStatic && stdenv.system == "aarch64-linux")) [
             "LDFLAGS=-fuse-ld=gold"
@@ -173,6 +176,7 @@
             openssl sqlite
             libarchive
             boost182
+            metall
             lowdown-nix
           ]
           ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.libs.sandbox]

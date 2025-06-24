@@ -336,15 +336,16 @@ fi
 
 # Whether to use the Metall allocator (note: for some reason this breaks rapidcheck tests above)
 AC_LANG_PUSH(C++)
-AC_ARG_ENABLE(metall, AS_HELP_STRING([--enable-metall],[enable metall allocator in the Nix expression evaluator [default=no]]),
-  metall=$enableval, metall=no)
-if test "$metall" = yes; then
-  PKG_CHECK_MODULES([METALL], [metall])
+AC_ARG_WITH(metall, AS_HELP_STRING([--with-metall=PATH],[enable metall allocator in the Nix expression evaluator]),
+  metall=$withval)
+AC_SUBST(metall)
+if test -n "$metall+x"; then
+  #PKG_CHECK_MODULES([METALL], [metall])
   CXXFLAGS="$METALL_CFLAGS $CXXFLAGS"
   AC_DEFINE(HAVE_METALL, 1, [Whether to use the Metall persistent memory allocator.])
 fi
 
-if test "$metall" = yes -a "$gc" = yes; then
+if test -z "$metall+x" -a "$gc" = yes; then
   AC_MSG_ERROR([--enable-gc and --enable-metall are mutually exclusive])
 fi
 AC_LANG_POP(C++)
