@@ -170,7 +170,7 @@
             bzip2 xz brotli editline
             openssl sqlite
             libarchive
-            boost
+            boost182
             lowdown-nix
           ]
           ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.libs.sandbox]
