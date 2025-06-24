@@ -304,6 +304,7 @@ if test "$gc" = yes; then
   AC_DEFINE(HAVE_BOEHMGC, 1, [Whether to use the Boehm garbage collector.])
 fi
 
+
 if test "$tests" = yes; then
 
 # Look for gtest.
@@ -347,14 +348,6 @@ if test "$metall" = yes -a "$gc" = yes; then
   AC_MSG_ERROR([--enable-gc and --enable-metall are mutually exclusive])
 fi
 AC_LANG_POP(C++)
-
-# Fix memory corruption crashes when not using the Boehm allocator by using segmented stacks
-# in boost, which fixes the problem. Probable cause is a stack-overflow in the
-# fiber context switch.
-if "$gc" = no; then
-  CFLAGS="-DBOOST_USE_SEGMENTED_STACKS"
-  CXXFLAGS="-DBOOST_USE_SEGMENTED_STACKS"
-fi
 
 # Look for nlohmann/json.
 PKG_CHECK_MODULES([NLOHMANN_JSON], [nlohmann_json >= 3.9])
