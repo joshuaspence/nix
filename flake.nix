@@ -135,6 +135,7 @@
             "--with-boost=${boost182}/lib"
             "--with-boost-libdir=${boost182}/lib"
             "--with-sandbox-shell=${sh}/bin/busybox"
+            "--enable-metall"
           ]
           ++ lib.optionals (stdenv.isLinux && !(isStatic && stdenv.system == "aarch64-linux")) [
             "LDFLAGS=-fuse-ld=gold"
