@@ -1,6 +1,7 @@
 #include "nix/fetchers/fetch-to-store.hh"
 #include "nix/fetchers/fetchers.hh"
 #include "nix/fetchers/fetch-settings.hh"
+#include "nix/util/posix-source-accessor.hh"
 
 namespace nix {
 
@@ -22,8 +23,32 @@ StorePath fetchToStore(
     PathFilter * filter,
     RepairFlag repair)
 {
-    // FIXME: add an optimisation for the case where the accessor is
-    // a `PosixSourceAccessor` pointing to a store path.
+    // Optimization: if the accessor is a PosixSourceAccessor pointing to a store path,
+    // we can return that store path directly without copying.
+    // Only apply this optimization when we're in Copy mode and there's no filter.
+    if (!filter && mode == FetchMode::Copy) {
+        if (auto * posixAccessor = dynamic_cast<PosixSourceAccessor *>(&*path.accessor)) {
+            if (auto physicalPath = posixAccessor->getPhysicalPath(path.path)) {
+                auto pathStr = physicalPath->string();
+                if (store.isInStore(pathStr)) {
+                    try {
+                        auto [storePath, subPath] = store.toStorePath(pathStr);
+                        // Only return the store path if:
+                        // 1. It's the exact path (no sub-path)
+                        // 2. The store path is valid
+                        // 3. It's not a derivation (to avoid issues with import-from-derivation)
+                        if (subPath.empty() && store.isValidPath(storePath) && !storePath.isDerivation()) {
+                            debug("optimized store path copy for '%s' - already in store as '%s'",
+                                  path, store.printStorePath(storePath));
+                            return storePath;
+                        }
+                    } catch (const Error &) {
+                        // Not a valid store path, fall through to normal processing
+                    }
+                }
+            }
+        }
+    }
 
     std::optional<fetchers::Cache::Key> cacheKey;
 
