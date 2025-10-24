@@ -114,7 +114,35 @@ git_oid hashToOID(const Hash & hash)
 Object lookupObject(git_repository * repo, const git_oid & oid, git_object_t type = GIT_OBJECT_ANY)
 {
     Object obj;
-    if (git_object_lookup(Setter(obj), repo, &oid, type)) {
+    auto errCode = git_object_lookup(Setter(obj), repo, &oid, type);
+    if (errCode) {
+        // If object not found and we're using a partial clone, try to fetch it on-demand
+        if (errCode == GIT_ENOTFOUND) {
+            // Check if this is a partial clone by looking for extensions.partialClone config
+            auto repoPath = std::string(git_repository_path(repo));
+
+            // Use git cat-file to fetch just this specific object
+            // This will trigger Git's partial clone mechanism to fetch only what we need
+            char oidStr[GIT_OID_SHA1_HEXSIZE + 1];
+            git_oid_tostr(oidStr, sizeof(oidStr), &oid);
+
+            auto [status, output] = runProgram(
+                RunOptions{
+                    .program = "git",
+                    .lookupPath = true,
+                    .args = {"-C", repoPath, "cat-file", "-e", oidStr},
+                    .mergeStderrToStdout = true
+                });
+
+            if (status == 0) {
+                // Object was fetched successfully, retry the lookup
+                errCode = git_object_lookup(Setter(obj), repo, &oid, type);
+                if (!errCode) {
+                    return obj;
+                }
+            }
+        }
+
         auto err = git_error_last();
         throw Error("getting Git object '%s': %s", oid, err->message);
     }
@@ -548,7 +576,7 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
         //       then use code that was removed in this commit (see blame)
 
         auto dir = this->path;
-        Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch", "--quiet", "--force"};
+        Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch", "--quiet", "--force", "--filter", "blob:none"};
         if (shallow)
             append(gitArgs, {"--depth", "1"});
         append(gitArgs, {std::string("--"), url, refspec});
@@ -946,8 +974,37 @@ struct GitSourceAccessor : SourceAccessor
         }
 
         Blob blob;
-        if (git_tree_entry_to_object((git_object **) (git_blob **) Setter(blob), *state.repo, entry))
+        auto errCode = git_tree_entry_to_object((git_object **) (git_blob **) Setter(blob), *state.repo, entry);
+        if (errCode) {
+            // If blob not found and we're using a partial clone, try to fetch it on-demand
+            if (errCode == GIT_ENOTFOUND) {
+                auto oid = git_tree_entry_id(entry);
+                auto repoPath = std::string(git_repository_path(*state.repo));
+
+                // Use git cat-file to fetch just this specific blob
+                // This will trigger Git's partial clone mechanism to fetch only what we need
+                char oidStr[GIT_OID_SHA1_HEXSIZE + 1];
+                git_oid_tostr(oidStr, sizeof(oidStr), oid);
+
+                auto [status, output] = runProgram(
+                    RunOptions{
+                        .program = "git",
+                        .lookupPath = true,
+                        .args = {"-C", repoPath, "cat-file", "-e", oidStr},
+                        .mergeStderrToStdout = true
+                    });
+
+                if (status == 0) {
+                    // Blob was fetched successfully, retry the lookup
+                    errCode = git_tree_entry_to_object((git_object **) (git_blob **) Setter(blob), *state.repo, entry);
+                    if (!errCode) {
+                        return blob;
+                    }
+                }
+            }
+
             throw Error("looking up file '%s': %s", showPath(path), git_error_last()->message);
+        }
 
         return blob;
     }
