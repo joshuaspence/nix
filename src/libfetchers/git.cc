@@ -725,13 +725,6 @@ struct GitInputScheme : InputScheme
 
         auto repo = GitRepo::openRepo(repoDir);
 
-        auto isShallow = repo->isShallow();
-
-        if (isShallow && !getShallowAttr(input))
-            throw Error(
-                "'%s' is a shallow Git repository, but shallow repositories are only allowed when `shallow = true;` is specified",
-                repoInfo.locationToArg());
-
         // FIXME: check whether rev is an ancestor of ref?
 
         auto rev = *input.getRev();
