@@ -179,8 +179,8 @@ let
       # https://fedoraproject.org/wiki/Changes/PythonNoSemanticInterpositionSpeedup
       prevAttrs.preConfigure or ""
       + lib.optionalString stdenv.cc.isGNU ''
-        export CFLAGS="''${CFLAGS:-} ${toString interpositionFlags}"
-        export CXXFLAGS="''${CXXFLAGS:-} ${toString interpositionFlags}"
+        export CFLAGS="''${CFLAGS:-} ${toString interpositionFlags} -DBOOST_USE_SEGMENTED_STACKS"
+        export CXXFLAGS="''${CXXFLAGS:-} ${toString interpositionFlags} -DBOOST_USE_SEGMENTED_STACKS"
       '';
     outputs = prevAttrs.outputs or [ "out" ] ++ [ "dev" ];
   };
