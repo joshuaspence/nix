@@ -701,6 +701,45 @@ void DerivationBuilderImpl::checkSystem()
 
 std::optional<Descriptor> DerivationBuilderImpl::startBuild()
 {
+    std::stringstream envStr;
+
+    envStr << "<";
+    for (const auto& pair : env) {
+        envStr << pair.first << "=" << pair.second;
+    }
+    envStr << ">";
+
+    std::stringstream inputRewritesStr;
+    inputRewritesStr << "<";
+    for (const auto& pair : env) {
+        inputRewritesStr << pair.first << "=" << pair.second;
+    }
+    inputRewritesStr << ">";
+
+    std::stringstream outputRewritesStr;
+    outputRewritesStr << "<";
+    for (const auto& pair : env) {
+        outputRewritesStr << pair.first << "=" << pair.second;
+    }
+    outputRewritesStr << ">";
+
+    std::stringstream redirectedOutputsStr;
+    redirectedOutputsStr << "<";
+    for (const auto& pair : env) {
+        redirectedOutputsStr<< pair.first << "=" << pair.second;
+    }
+    redirectedOutputsStr << ">";
+
+    printError(
+        "DerivationBuilderImpl::startBuild tmpDir=%s topTmpDir=%s env=%s inputRewrites=%s outputRewrites=%s redirectedOutputs=%s originalPaths=<%s>", 
+        tmpDir,
+        topTmpDir,
+        envStr.str(),
+        inputRewritesStr.str(),
+        outputRewritesStr.str(),
+        redirectedOutputsStr.str(),
+        concatStringsSep(" ", store.printStorePathSet(originalPaths())));
+
     if (useBuildUsers()) {
         if (!buildUser)
             buildUser = getBuildUser();
