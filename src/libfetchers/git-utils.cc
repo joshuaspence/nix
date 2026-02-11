@@ -41,6 +41,7 @@
 #include <boost/unordered/concurrent_flat_set.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
+#include <filesystem>
 #include <iostream>
 #include <queue>
 #include <regex>
@@ -237,6 +238,7 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
 {
     /** Location of the repository on disk. */
     std::filesystem::path path;
+    std::filesystem::path bloblessPath;
 
     Options options;
 
@@ -246,6 +248,7 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
      * `flush()`, which is also called by `GitFileSystemObjectSink::sync()`.
      */
     Repository repo;
+    Repository bloblessRepo;
 
     /**
      * In-memory object store for efficient batched writing to packfiles.
@@ -261,6 +264,7 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
 
     GitRepoImpl(std::filesystem::path _path, Options _options)
         : path(std::move(_path))
+        , bloblessPath(path.string() + "-blobless")
         , options(_options)
     {
         initLibGit2();
@@ -287,6 +291,17 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
 
             if (git_odb_add_backend(odb.get(), packBackend, 1))
                 throw Error("adding pack backend to Git object database: %s", git_error_last()->message);
+
+            // For local repositories (not cloned), use the same repo for both
+            // Only create a separate blobless repo if it already exists (from a fetch operation)
+            if (pathExists(bloblessPath.string())) {
+                if (git_repository_open(Setter(bloblessRepo), bloblessPath.string().c_str()))
+                    throw Error("opening blobless Git repository %s: %s", bloblessPath, git_error_last()->message);
+            } else {
+                // For local repos, we don't need a separate blobless repo
+                // We'll handle this by checking if bloblessRepo is set in methods that use it
+                // and falling back to repo if not
+            }
         } else {
             if (git_repository_odb(Setter(odb), repo.get()))
                 throw Error("getting Git object database: %s", git_error_last()->message);
@@ -395,9 +410,12 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
 
     uint64_t getRevCount(const Hash & rev) override
     {
+        // Use the blobless repository if available (has full history), otherwise use main repo
+        auto historyRepo = bloblessRepo ? bloblessRepo.get() : repo.get();
+
         boost::concurrent_flat_set<git_oid, std::hash<git_oid>> done;
 
-        auto startCommit = peelObject<Commit>(lookupObject(*this, hashToOID(rev)).get(), GIT_OBJECT_COMMIT);
+        auto startCommit = peelObject<Commit>(lookupObject(historyRepo, hashToOID(rev)).get(), GIT_OBJECT_COMMIT);
         auto startOid = *git_commit_id(startCommit.get());
         done.insert(startOid);
 
@@ -437,7 +455,9 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
 
     uint64_t getLastModified(const Hash & rev) override
     {
-        auto commit = peelObject<Commit>(lookupObject(*this, hashToOID(rev)).get(), GIT_OBJECT_COMMIT);
+        // Use blobless repo if available for commit lookups, otherwise use main repo
+        auto historyRepo = bloblessRepo ? bloblessRepo.get() : repo.get();
+        auto commit = peelObject<Commit>(lookupObject(historyRepo, hashToOID(rev)).get(), GIT_OBJECT_COMMIT);
 
         return git_commit_time(commit.get());
     }
@@ -450,7 +470,12 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
     void setRemote(const std::string & name, const std::string & url) override
     {
         if (git_remote_set_url(*this, name.c_str(), url.c_str()))
-            throw Error("setting remote '%s' URL to '%s': %s", name, url, git_error_last()->message);
+            throw Error("setting remote '%s' URL to '%s' for shallow repo: %s", name, url, git_error_last()->message);
+
+        if (bloblessRepo) {
+            if (git_remote_set_url(bloblessRepo.get(), name.c_str(), url.c_str()))
+                throw Error("setting remote '%s' URL to '%s' for blobless repo: %s", name, url, git_error_last()->message);
+        }
     }
 
     Hash resolveRef(std::string ref) override
@@ -616,17 +641,65 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
         // that)
         //       then use code that was removed in this commit (see blame)
 
+        // Check if this is a local file:// URL or local path
+        bool isLocalRepo = url.starts_with("file://") || url.starts_with("/") || url.starts_with("./");
+
         if (ExecutablePath::load().findName("git")) {
             auto dir = this->path;
-            Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch", "--progress", "--force"};
-            if (shallow)
-                append(gitArgs, {"--depth", "1"});
-            append(gitArgs, {std::string("--"), url, refspec});
 
-            auto status = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true}).first;
+            if (shallow || isLocalRepo) {
+                // For shallow clones or local repositories, just do a simple fetch
+                // Local repos don't benefit from dual-clone approach
+                Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch", "--progress", "--force"};
+                if (shallow)
+                    append(gitArgs, {"--depth", "1"});
+                append(gitArgs, {std::string("--"), url, refspec});
 
-            if (status > 0)
-                throw Error("Failed to fetch git repository '%s'", url);
+                auto status = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true}).first;
+
+                if (status > 0)
+                    throw Error("Failed to fetch git repository '%s'", url);
+            } else {
+                // For non-shallow remote clones, use dual-clone approach:
+                // 1. Shallow clone with all blobs for HEAD
+                // 2. Blobless clone with full history
+
+                // Step 1: Perform shallow clone (with all blobs for HEAD)
+                Activity shallowAct(*logger, lvlTalkative, actFetchTree,
+                                   fmt("fetching shallow clone from '%s'", url));
+
+                Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch",
+                              "--quiet", "--force", "--depth", "1"};
+                append(gitArgs, {std::string("--"), url, refspec});
+
+                auto status = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true}).first;
+
+                if (status > 0)
+                    throw Error("Failed to fetch shallow clone from %s : %s", url, output);
+
+                // Step 2: Perform blobless clone (for full history without blobs)
+                Activity bloblessAct(*logger, lvlTalkative, actFetchTree,
+                                    fmt("fetching blobless clone from '%s'", url));
+
+                // Create blobless repository if it doesn't exist
+                if (!pathExists(bloblessPath.string())) {
+                    initRepoAtomically(bloblessPath, true);  // bare repository
+                    if (git_repository_open(Setter(bloblessRepo), bloblessPath.string().c_str()))
+                        throw Error("opening new blobless Git repository %s: %s", bloblessPath, git_error_last()->message);
+                }
+
+                auto dir = this->bloblessPath;
+                // Blobless clone gets full history but no blobs
+                Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch",
+                              "--quiet", "--force", "--filter", "blob:none"};
+                // Note: we never add --depth for the blobless clone, we want full history
+                append(gitArgs, {std::string("--"), url, refspec});
+
+                auto status = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true}).first;
+
+                if (status > 0)
+                    throw Error("Failed to fetch blobless clone from %s : %s", url, output);
+            }
         } else {
             // Fall back to using libgit2 for fetching. This does not
             // support SSH very well.
@@ -743,7 +816,9 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
     {
         auto oid = hashToOID(oid_);
 
-        auto _tree = lookupObject(*this, oid, GIT_OBJECT_TREE);
+        // Use blobless repo if available for tree lookups, otherwise use main repo
+        auto historyRepo = bloblessRepo ? bloblessRepo.get() : repo.get();
+        auto _tree = lookupObject(historyRepo, oid, GIT_OBJECT_TREE);
         auto tree = (const git_tree *) &*_tree;
 
         if (git_tree_entrycount(tree) == 1) {
@@ -785,7 +860,10 @@ struct GitSourceAccessor : SourceAccessor
     GitSourceAccessor(ref<GitRepoImpl> repo_, const Hash & rev, const GitAccessorOptions & options)
         : state_{State{
               .repo = repo_,
-              .root = peelToTreeOrBlob(lookupObject(*repo_, hashToOID(rev)).get()),
+              // Use blobless repo if available for commit/tree lookups, otherwise use main repo
+              .root = peelToTreeOrBlob(lookupObject(
+                  repo_->bloblessRepo ? repo_->bloblessRepo.get() : repo_->repo.get(),
+                  hashToOID(rev)).get()),
               .lfsFetch = options.smudgeLfs ? std::make_optional(lfs::Fetch(*repo_, hashToOID(rev))) : std::nullopt,
               .options = options,
           }}
@@ -966,7 +1044,9 @@ struct GitSourceAccessor : SourceAccessor
             return std::nullopt;
 
         Tree tree;
-        if (git_tree_entry_to_object((git_object **) (git_tree **) Setter(tree), *state.repo, entry))
+        if (git_tree_entry_to_object((git_object **) (git_tree **) Setter(tree),
+                                      state.repo->bloblessRepo ? state.repo->bloblessRepo.get() : state.repo->repo.get(),
+                                      entry))
             throw Error("looking up directory '%s': %s", showPath(path), git_error_last()->message);
 
         return tree;
@@ -1001,7 +1081,9 @@ struct GitSourceAccessor : SourceAccessor
             throw Error("'%s' is not a directory", showPath(path));
 
         Tree tree;
-        if (git_tree_entry_to_object((git_object **) (git_tree **) Setter(tree), *state.repo, entry))
+        if (git_tree_entry_to_object((git_object **) (git_tree **) Setter(tree),
+                                      state.repo->bloblessRepo ? state.repo->bloblessRepo.get() : state.repo->repo.get(),
+                                      entry))
             throw Error("looking up directory '%s': %s", showPath(path), git_error_last()->message);
 
         return tree;

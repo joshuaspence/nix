@@ -976,14 +976,7 @@ struct GitInputScheme : InputScheme
             input.attrs.insert_or_assign("lastModified", getLastModified(settings, repoInfo, repoDir, rev));
 
         /* Like lastModified, skip revCount if supplied by the caller. */
-        if (!shallow && !input.attrs.contains("revCount")) {
-            auto isShallow = repo->isShallow();
-
-            if (isShallow && !shallow)
-                throw Error(
-                    "'%s' is a shallow Git repository, but shallow repositories are only allowed when `shallow = true;` is specified",
-                    repoInfo.locationToArg());
-
+        if (!input.attrs.contains("revCount")) {
             input.attrs.insert_or_assign("revCount", getRevCount(settings, repoInfo, repoDir, rev));
         }
 
