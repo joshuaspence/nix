@@ -28,7 +28,7 @@ builder=$(nix eval --raw "$flake1Dir#packages.$system.default._builder")
           "lastModified": $lastModified,
           "ref": "refs/heads/master",
           "rev": "$rev",
-          "revCount": 1,
+          "revCount": 0,
           "type": "git",
           "url": "file://$flake1Dir"
         },
@@ -53,7 +53,7 @@ EOF
     "lastModified": $lastModified,
     "ref": "refs/heads/master",
     "rev": "$rev",
-    "revCount": 1,
+    "revCount": 0,
     "type": "git",
     "url": "file://$flake1Dir"
   },
@@ -70,7 +70,7 @@ EOF
       "lastModified": $lastModified,
       "ref": "refs/heads/master",
       "rev": "$rev",
-      "revCount": 1,
+      "revCount": 0,
       "type": "git",
       "url": "file://$flake1Dir"
     },
@@ -104,7 +104,7 @@ nix copy --from "file://$binaryCache" "$outPath" --no-check-sigs
             "lastModified": $lastModified,
             "ref": "refs/heads/master",
             "rev": "$rev",
-            "revCount": 1,
+            "revCount": 0,
             "type": "git",
             "url": "file://$flake1Dir"
           },

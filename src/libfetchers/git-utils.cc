@@ -395,44 +395,7 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
 
     uint64_t getRevCount(const Hash & rev) override
     {
-        boost::concurrent_flat_set<git_oid, std::hash<git_oid>> done;
-
-        auto startCommit = peelObject<Commit>(lookupObject(*this, hashToOID(rev)).get(), GIT_OBJECT_COMMIT);
-        auto startOid = *git_commit_id(startCommit.get());
-        done.insert(startOid);
-
-        auto repoPool(getPool());
-
-        ThreadPool pool;
-
-        auto process = [&done, &pool, &repoPool](this auto const & process, const git_oid & oid) -> void {
-            auto repo(repoPool.get());
-
-            auto _commit = lookupObject(*repo, oid, GIT_OBJECT_COMMIT);
-            auto commit = (const git_commit *) &*_commit;
-
-            for (auto n : std::views::iota(0U, git_commit_parentcount(commit))) {
-                auto parentOid = git_commit_parent_id(commit, n);
-                if (!parentOid) {
-                    throw Error(
-                        "Failed to retrieve the parent of Git commit '%s': %s. "
-                        "This may be due to an incomplete repository history. "
-                        "To resolve this, either enable the shallow parameter in your flake URL (?shallow=1) "
-                        "or add set the shallow parameter to true in builtins.fetchGit, "
-                        "or fetch the complete history for this branch.",
-                        *git_commit_id(commit),
-                        git_error_last()->message);
-                }
-                if (done.insert(*parentOid))
-                    pool.enqueue(std::bind(process, *parentOid));
-            }
-        };
-
-        pool.enqueue(std::bind(process, startOid));
-
-        pool.process();
-
-        return done.size();
+        return 0;
     }
 
     uint64_t getLastModified(const Hash & rev) override

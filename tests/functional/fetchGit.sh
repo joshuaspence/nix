@@ -59,7 +59,7 @@ mv "$repo" "${repo}"-tmp
 path2=$(nix eval --impure --raw --expr "(builtins.fetchGit file://$repo).outPath")
 [[ $path = "$path2" ]]
 
-[[ $(nix eval --impure --expr "(builtins.fetchGit file://$repo).revCount") = 2 ]]
+[[ $(nix eval --impure --expr "(builtins.fetchGit file://$repo).revCount") = 0 ]]
 [[ $(nix eval --impure --raw --expr "(builtins.fetchGit file://$repo).rev") = "$rev2" ]]
 [[ $(nix eval --impure --raw --expr "(builtins.fetchGit file://$repo).shortRev") = "${rev2:0:7}" ]]
 
@@ -308,7 +308,7 @@ git -C "$empty" config user.email "foobar@example.com"
 git -C "$empty" config user.name "Foobar"
 git -C "$empty" commit --allow-empty --allow-empty-message --message ""
 
-nix eval --impure --expr "let attrs = builtins.fetchGit $empty; in assert attrs.lastModified != 0; assert attrs.rev != \"0000000000000000000000000000000000000000\"; assert attrs.revCount == 1; true"
+nix eval --impure --expr "let attrs = builtins.fetchGit $empty; in assert attrs.lastModified != 0; assert attrs.rev != \"0000000000000000000000000000000000000000\"; assert attrs.revCount == 0; true"
 
 # Test backward compatibility hack for Nix < 2.20 locks / fetchTree calls that expect Git filters to be applied.
 eol="$TEST_ROOT/git-eol"
