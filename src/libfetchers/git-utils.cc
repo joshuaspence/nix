@@ -665,40 +665,44 @@ struct GitRepoImpl : GitRepo, std::enable_shared_from_this<GitRepoImpl>
                 // 2. Blobless clone with full history
 
                 // Step 1: Perform shallow clone (with all blobs for HEAD)
-                Activity shallowAct(*logger, lvlTalkative, actFetchTree,
-                                   fmt("fetching shallow clone from '%s'", url));
+                {
+                    Activity shallowAct(*logger, lvlTalkative, actFetchTree,
+                                       fmt("fetching shallow clone from '%s'", url));
 
-                Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch",
-                              "--quiet", "--force", "--depth", "1"};
-                append(gitArgs, {std::string("--"), url, refspec});
+                    Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch",
+                                  "--quiet", "--force", "--depth", "1"};
+                    append(gitArgs, {std::string("--"), url, refspec});
 
-                auto status = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true}).first;
+                    auto [status, output] = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true});
 
-                if (status > 0)
-                    throw Error("Failed to fetch shallow clone from %s : %s", url, output);
-
-                // Step 2: Perform blobless clone (for full history without blobs)
-                Activity bloblessAct(*logger, lvlTalkative, actFetchTree,
-                                    fmt("fetching blobless clone from '%s'", url));
-
-                // Create blobless repository if it doesn't exist
-                if (!pathExists(bloblessPath.string())) {
-                    initRepoAtomically(bloblessPath, true);  // bare repository
-                    if (git_repository_open(Setter(bloblessRepo), bloblessPath.string().c_str()))
-                        throw Error("opening new blobless Git repository %s: %s", bloblessPath, git_error_last()->message);
+                    if (status > 0)
+                        throw Error("Failed to fetch shallow clone from %s : %s", url, output);
                 }
 
-                auto dir = this->bloblessPath;
-                // Blobless clone gets full history but no blobs
-                Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch",
-                              "--quiet", "--force", "--filter", "blob:none"};
-                // Note: we never add --depth for the blobless clone, we want full history
-                append(gitArgs, {std::string("--"), url, refspec});
+                // Step 2: Perform blobless clone (for full history without blobs)
+                {
+                    Activity bloblessAct(*logger, lvlTalkative, actFetchTree,
+                                        fmt("fetching blobless clone from '%s'", url));
 
-                auto status = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true}).first;
+                    // Create blobless repository if it doesn't exist
+                    if (!pathExists(bloblessPath.string())) {
+                        initRepoAtomically(bloblessPath, options);  // bare repository
+                        if (git_repository_open(Setter(bloblessRepo), bloblessPath.string().c_str()))
+                            throw Error("opening new blobless Git repository %s: %s", bloblessPath, git_error_last()->message);
+                    }
 
-                if (status > 0)
-                    throw Error("Failed to fetch blobless clone from %s : %s", url, output);
+                    auto dir = this->bloblessPath;
+                    // Blobless clone gets full history but no blobs
+                    Strings gitArgs{"-C", dir.string(), "--git-dir", ".", "fetch",
+                                  "--quiet", "--force", "--filter", "blob:none"};
+                    // Note: we never add --depth for the blobless clone, we want full history
+                    append(gitArgs, {std::string("--"), url, refspec});
+
+                    auto [status, output] = runProgram(RunOptions{.program = "git", .args = gitArgs, .isInteractive = true});
+
+                    if (status > 0)
+                        throw Error("Failed to fetch blobless clone from %s : %s", url, output);
+                 }
             }
         } else {
             // Fall back to using libgit2 for fetching. This does not

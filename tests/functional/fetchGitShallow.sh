@@ -37,8 +37,8 @@ git clone --depth 1 "file://$TEST_ROOT/shallow-parent" "$TEST_ROOT/shallow-clone
 path=$(nix eval --impure --raw --expr "(builtins.fetchTree { type = \"git\"; url = \"file://$TEST_ROOT/shallow-clone\"; ref = \"dev\"; shallow = true; }).outPath")
 # Verify file from dev branch exists
 [[ -f "$path/branch-file.txt" ]]
-# Verify revCount is missing
-[[ $(nix eval --impure --expr "(builtins.fetchTree { type = \"git\"; url = \"file://$TEST_ROOT/shallow-clone\"; ref = \"dev\"; shallow = true; }).revCount or 123") == 123 ]]
+# Verify revCount is NOT missing
+[[ $(nix eval --impure --expr "(builtins.fetchTree { type = \"git\"; url = \"file://$TEST_ROOT/shallow-clone\"; ref = \"dev\"; shallow = true; }).revCount or 123") != 123 ]]
 
 # Test 3: Check unlocked input error message
 expectStderr 1 nix eval --expr 'builtins.fetchTree { type = "git"; url = "file:///foo"; }' | grepQuiet "'fetchTree' doesn't fetch unlocked input"
@@ -48,17 +48,11 @@ expectStderr 1 nix eval --expr 'builtins.fetchTree { type = "git"; url = "file:/
 git -C "$TEST_ROOT/shallow-clone" worktree add "$TEST_ROOT/shallow-worktree"
 
 # Prior to the fix, this would error out because of the shallow clone's
-# inability to find parent commits. Now it should return an error.
-if nix eval --impure --expr "(builtins.fetchGit { url = \"file://$TEST_ROOT/shallow-worktree\"; }).revCount" 2>/dev/null; then
-    echo "fetchGit unexpectedly succeeded on shallow clone" >&2
-    exit 1
-fi
+# inability to find parent commits. Now it should succeed.
+nix eval --impure --expr "(builtins.fetchGit { url = \"file://$TEST_ROOT/shallow-worktree\"; }).revCount"
 
-# Also verify that fetchTree fails similarly
-if nix eval --impure --expr "(builtins.fetchTree { type = \"git\"; url = \"file://$TEST_ROOT/shallow-worktree\"; }).revCount" 2>/dev/null; then
-    echo "fetchTree unexpectedly succeeded on shallow clone" >&2
-    exit 1
-fi
+# Also verify that fetchTree succeeds similarly
+nix eval --impure --expr "(builtins.fetchTree { type = \"git\"; url = \"file://$TEST_ROOT/shallow-worktree\"; }).revCount"
 
 # Verify that we can shallow fetch the worktree
 git -C "$TEST_ROOT/shallow-worktree" rev-list --count HEAD >/dev/null
