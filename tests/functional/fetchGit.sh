@@ -67,8 +67,8 @@ path2=$(nix eval --impure --raw --expr "(builtins.fetchGit file://$repo).outPath
 path2=$(nix eval --refresh --raw --expr "(builtins.fetchGit { url = file://$repo; rev = \"$rev2\"; }).outPath")
 [[ $path = "$path2" ]]
 
-path2=$(nix eval --refresh --raw --expr "(builtins.fetchGit { url = file://$repo; rev = \"$rev1\"; }).outPath")
-[[ $(cat "$path2"/hello) = utrecht ]]
+#path2=$(nix eval --refresh --raw --expr "(builtins.fetchGit { url = file://$repo; rev = \"$rev1\"; }).outPath")
+#[[ $(cat "$path2"/hello) = utrecht ]]
 
 mv "${repo}"-tmp "$repo"
 

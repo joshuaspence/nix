@@ -782,8 +782,7 @@ struct GitInputScheme : InputScheme
      */
     bool canDoShallow(const Input & input) const
     {
-        bool shallow = getShallowAttr(input);
-        return shallow || input.getRevCount().has_value();
+        return true;
     }
 
     GitAccessorOptions getGitAccessorOptions(const Input & input) const

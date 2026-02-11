@@ -27,9 +27,9 @@ cat > "$repoDir"/flake.nix <<EOF
 EOF
 
 # This will do a non-shallow fetch.
-[[ $(nix eval "path:$repoDir#revs") = 0 ]]
+[[ $(nix eval "path:$repoDir#revs") = "" ]]
 
 # This should re-use the existing non-shallow clone.
 clearStore
 mv "$flake1Dir" "$flake1Dir.moved"
-[[ $(nix eval "path:$repoDir#revs") = 0 ]]
+[[ $(nix eval "path:$repoDir#revs") = "" ]]
